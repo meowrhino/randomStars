@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>⭐</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body {
+      margin: 0; padding: 0;
+      width: 100vw; height: 100vh;
+      overflow: hidden;
+      background: #000;
+    }
+    #estrellas-canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      position: fixed;
+      top: 0; left: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="estrellas-canvas"></canvas>
+  <script>
+    const canvas = document.getElementById('estrellas-canvas');
+    const ctx = canvas.getContext('2d');
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // Configuración
+    const NUM_ESTRELLAS = Math.floor(window.innerWidth * window.innerHeight / 1500);
+    const NUM_CONSTELACIONES = Math.floor(Math.random() * 4) + 10; // 3-4
+    const ESTRELLAS_X_CONSTELACION = [4, 5, 6, 7, 8, 9, 10];
+
+    // Crea todas las estrellas random
+    function crearEstrellas() {
+      let estrellas = [];
+      for(let i=0; i<NUM_ESTRELLAS; i++) {
+        estrellas.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          radio: Math.random() * 0.7 + 0.6,
+          baseAlpha: Math.random() * 0.7 + 0.3,
+          phase: Math.random() * Math.PI * 2 // para animar el parpadeo suavemente y sin sincronía
+        });
+      }
+      return estrellas;
+    }
+    let estrellas = crearEstrellas();
+
+    // Genera constelaciones agrupadas y CON CONEXIONES MÁS REALISTAS
+    function crearConstelaciones() {
+      let constelaciones = [];
+      for(let i=0; i<NUM_CONSTELACIONES; i++) {
+        // 1. Elige cuántas estrellas tendrá
+        let numEst = ESTRELLAS_X_CONSTELACION[Math.floor(Math.random()*ESTRELLAS_X_CONSTELACION.length)];
+        // 2. Centro aleatorio
+        let centerX = Math.random() * (canvas.width * 0.8) + canvas.width * 0.1;
+        let centerY = Math.random() * (canvas.height * 0.8) + canvas.height * 0.1;
+        let radioGrupo = Math.min(canvas.width, canvas.height) * (0.10 + Math.random() * 0.08);
+        let usados = new Set();
+        let nodos = [];
+
+        let intentos = 0;
+        while (nodos.length < numEst && intentos < 200) {
+          let ang = Math.random() * 2 * Math.PI;
+          let r = Math.random() * radioGrupo * 0.85;
+          let x = centerX + Math.cos(ang) * r;
+          let y = centerY + Math.sin(ang) * r;
+          // Elige la estrella más cercana del fondo a ese punto
+          let masCercana = null;
+          let minDist = Infinity;
+          for (let j = 0; j < estrellas.length; j++) {
+            if (usados.has(j)) continue;
+            let e = estrellas[j];
+            let d = Math.hypot(e.x - x, e.y - y);
+            if (d < minDist) {
+              minDist = d;
+              masCercana = j;
+            }
+          }
+          if (masCercana !== null) {
+            usados.add(masCercana);
+            nodos.push(masCercana);
+          }
+          intentos++;
+        }
+
+        // --- Aquí está la diferencia: CONEXIONES RAMIFICADAS tipo constelación real ---
+        // Creamos una lista de conexiones entre nodos (índices relativos)
+        // El algoritmo: un árbol de conexiones cortas (similar a un Minimum Spanning Tree simple)
+        let conexiones = [];
+        if (nodos.length > 1) {
+          let conectados = [0]; // índices en "nodos"
+          let noConectados = Array.from({length:nodos.length}, (_,i)=>i).slice(1);
+          while(noConectados.length) {
+            let minDist = Infinity, fromIdx = null, toIdx = null;
+            for(let i of conectados) {
+              for(let j of noConectados) {
+                let a = estrellas[nodos[i]];
+                let b = estrellas[nodos[j]];
+                let d = Math.hypot(a.x-b.x, a.y-b.y);
+                if(d < minDist) {
+                  minDist = d; fromIdx = i; toIdx = j;
+                }
+              }
+            }
+            conexiones.push([fromIdx, toIdx]);
+            conectados.push(toIdx);
+            noConectados = noConectados.filter(x=>x!==toIdx);
+          }
+        }
+
+        // Añade alguna conexión "extra" aleatoria para un toque menos rígido (pero NO círculo)
+        if(nodos.length > 4 && Math.random() > 0.5) {
+          let extraA = Math.floor(Math.random()*nodos.length);
+          let extraB = (extraA + 2 + Math.floor(Math.random()*(nodos.length-3))) % nodos.length;
+          if (!conexiones.some(([a,b]) => (a===extraA&&b===extraB)||(a===extraB&&b===extraA))) {
+            conexiones.push([extraA, extraB]);
+          }
+        }
+
+        constelaciones.push({nodos, conexiones});
+      }
+      return constelaciones;
+    }
+    let constelaciones = crearConstelaciones();
+
+    // Animación de parpadeo sutil
+    function getStarAlpha(estrella, t) {
+      // Oscila suavemente en torno al brillo base, ciclo largo y bajo (± 12%)
+      return estrella.baseAlpha * (0.93 + 0.07 * Math.sin(t * 0.37 + estrella.phase));
+    }
+
+    // Dibuja todo
+    function pintarCielo(t) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Fondo: estrellas parpadeando suavemente
+      for(const est of estrellas) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(est.x, est.y, est.radio, 0, 2*Math.PI);
+        ctx.globalAlpha = getStarAlpha(est, t/1000);
+        ctx.fillStyle = "#fff";
+        ctx.shadowColor = "#fff";
+        ctx.shadowBlur = 6 + est.baseAlpha*14;
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Dibuja constelaciones
+      for(let cons of constelaciones) {
+        // Líneas ramificadas entre nodos de la constelación
+        ctx.save();
+        ctx.strokeStyle = "rgba(255,255,255,0.44)";
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([1, 5]);
+        ctx.beginPath();
+        for(let [i1, i2] of cons.conexiones) {
+          let a = estrellas[cons.nodos[i1]];
+          let b = estrellas[cons.nodos[i2]];
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+
+      requestAnimationFrame(pintarCielo);
+    }
+
+    pintarCielo(0);
+
+    // Al redimensionar, recalcula todo
+    window.addEventListener('resize', () => {
+      resizeCanvas();
+      estrellas = crearEstrellas();
+      constelaciones = crearConstelaciones();
+    });
+  </script>
+</body>
+</html>
